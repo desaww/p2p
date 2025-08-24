@@ -6,9 +6,13 @@ const config = { iceServers: [] }; // Optional: leer fürs LAN, später TURN ein
 const roomInput = document.getElementById('roomId');
 const joinBtn = document.getElementById('joinBtn');
 const logPre = document.getElementById('log');
+const fileInput = document.getElementById('fileInput');
+const sendBtn = document.getElementById('sendBtn');
+
 let ws = null;
 let peers = [];
 let myId = null;
+let lastPeerId = null; // Merkt sich den letzten verbundenen Peer zum Senden
 
 // Hilfsfunktion: WebSocket-URL bauen
 function getWebSocketUrl() {
@@ -201,21 +205,49 @@ async function createPeerConnection(peerId, isInitiator) {
     }
 }
 
+sendBtn.onclick = async () => {
+    const file = fileInput.files[0];
+    if (!file) {
+        log('Keine Datei gewählt!');
+        return;
+    }
+    if (!lastPeerId || !dcMap[lastPeerId] || dcMap[lastPeerId].readyState !== 'open') {
+        log('Kein offener DataChannel!');
+        return;
+    }
+    const text = await file.text();
+    dcMap[lastPeerId].send(text);
+    log(`Datei "${file.name}" gesendet (${text.length} Zeichen)`);
+};
+
 function setupDataChannel(peerId, dc, isLocalSender) {
     dc.binaryType = 'arraybuffer';
 
     dc.onopen = () => {
         log(`DC open (${peerId}) state=${dc.readyState}`);
-        // Hier könntest du z.B. einen Sende-Button aktivieren
+        sendBtn.disabled = false;
+        lastPeerId = peerId;
     };
 
     dc.onmessage = ev => {
         console.log('msg from', peerId, ev.data);
         log(`DataChannel message from ${peerId}: ${typeof ev.data === 'string' ? ev.data : '[binary data]'}`);
+        if (typeof ev.data === 'string') {
+            // Datei als Download-Link anbieten
+            const blob = new Blob([ev.data], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'received.txt';
+            a.textContent = 'Empfangene Datei herunterladen';
+            a.style.display = 'block';
+            document.getElementById('peers').appendChild(a);
+        }
     };
 
     dc.onclose = () => {
         log(`DataChannel closed with ${peerId}`);
+        sendBtn.disabled = true;
     };
 
     dc.onerror = err => {
