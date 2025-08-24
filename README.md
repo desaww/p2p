@@ -21,7 +21,7 @@
 
 <h2>Getting Started</h2>
 <ol>
-  <li>Clone this repository: <pre><code>git clone &lt;repo-url&gt;</code></pre></li>
+  <li>Clone this repository: <pre><code>git clone https://github.com/desaww/p2p;</code></pre></li>
   <li>Install dependencies: <pre><code>npm install</code></pre></li>
   <li>Start the server: <pre><code>node server.js</code></pre></li>
   <li>Open your browser and go to <code>http://localhost:8080</code> (or your server IP for other devices)</li>
