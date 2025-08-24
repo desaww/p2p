@@ -14,6 +14,8 @@ let peers = [];
 let myId = null;
 let lastPeerId = null; // Merkt sich den letzten verbundenen Peer zum Senden
 
+const receivedFiles = {}; // peerId -> { meta, chunks: [] }
+
 // Hilfsfunktion: WebSocket-URL bauen
 function getWebSocketUrl() {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -215,9 +217,13 @@ sendBtn.onclick = async () => {
         log('Kein offener DataChannel!');
         return;
     }
-    const text = await file.text();
-    dcMap[lastPeerId].send(text);
-    log(`Datei "${file.name}" gesendet (${text.length} Zeichen)`);
+    // 1. Metadaten senden
+    const meta = { name: file.name, size: file.size, type: file.type };
+    dcMap[lastPeerId].send(JSON.stringify({ meta }));
+    // 2. Datei als ArrayBuffer senden
+    const buf = await file.arrayBuffer();
+    dcMap[lastPeerId].send(buf);
+    log(`Datei "${file.name}" gesendet (${buf.byteLength} Bytes)`);
 };
 
 function setupDataChannel(peerId, dc, isLocalSender) {
@@ -230,15 +236,56 @@ function setupDataChannel(peerId, dc, isLocalSender) {
     };
 
     dc.onmessage = ev => {
-        console.log('msg from', peerId, ev.data);
-        log(`DataChannel message from ${peerId}: ${typeof ev.data === 'string' ? ev.data : '[binary data]'}`);
+        // Prüfe, ob String und JSON mit meta
         if (typeof ev.data === 'string') {
-            // Datei als Download-Link anbieten
+            try {
+                const obj = JSON.parse(ev.data);
+                if (obj.meta) {
+                    receivedFiles[peerId] = { meta: obj.meta, chunks: [] };
+                    log(`Empfange Datei: ${obj.meta.name} (${obj.meta.size} Bytes, ${obj.meta.type})`);
+                    return;
+                }
+            } catch (e) {
+                // Kein JSON, ignoriere
+            }
+            // Fallback: alter Textmodus
+            log(`DataChannel message from ${peerId}: [Text]`);
             const blob = new Blob([ev.data], { type: 'text/plain' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = 'received.txt';
+            a.textContent = 'Empfangene Datei herunterladen';
+            a.style.display = 'block';
+            document.getElementById('peers').appendChild(a);
+            return;
+        }
+        // Binärdaten (ArrayBuffer)
+        if (receivedFiles[peerId] && receivedFiles[peerId].meta) {
+            receivedFiles[peerId].chunks.push(ev.data);
+            const { meta, chunks } = receivedFiles[peerId];
+            const receivedSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+            log(`Empfange Daten: ${receivedSize}/${meta.size} Bytes`);
+            if (receivedSize >= meta.size) {
+                // Datei komplett, als Blob speichern
+                const blob = new Blob(chunks, { type: meta.type || 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = meta.name || 'received.bin';
+                a.textContent = `Empfangene Datei: ${meta.name} herunterladen`;
+                a.style.display = 'block';
+                document.getElementById('peers').appendChild(a);
+                delete receivedFiles[peerId];
+            }
+        } else {
+            // Kein Meta, einfach als Binärdaten speichern
+            log(`Empfange unbekannte Binärdaten von ${peerId}`);
+            const blob = new Blob([ev.data]);
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'received.bin';
             a.textContent = 'Empfangene Datei herunterladen';
             a.style.display = 'block';
             document.getElementById('peers').appendChild(a);
