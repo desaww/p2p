@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>P2P Demo</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2em; }
+        #panel { margin-bottom: 1em; }
+        #peers { margin-top: 1em; padding: 0.5em; border: 1px solid #ccc; min-height: 2em; }
+        #log { margin-top: 1em; padding: 0.5em; background: #f9f9f9; border: 1px solid #eee; min-height: 4em; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <div id="panel">
+        <input type="text" id="roomId" placeholder="Enter Room-ID">
+        <button id="joinBtn">Join</button>
+    </div>
+    <div id="peers"></div>
+    <pre id="log"></pre>
+
+    <script src="client.js"></script>
+</body>
+</html>
