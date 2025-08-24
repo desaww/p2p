@@ -207,6 +207,8 @@ async function createPeerConnection(peerId, isInitiator) {
     }
 }
 
+const CHUNK_SIZE = 32 * 1024; // 32 KB pro Chunk
+
 sendBtn.onclick = async () => {
     const file = fileInput.files[0];
     if (!file) {
@@ -220,11 +222,29 @@ sendBtn.onclick = async () => {
     // 1. Metadaten senden
     const meta = { name: file.name, size: file.size, type: file.type };
     dcMap[lastPeerId].send(JSON.stringify({ meta }));
-    // 2. Datei als ArrayBuffer senden
-    const buf = await file.arrayBuffer();
-    dcMap[lastPeerId].send(buf);
-    log(`Datei "${file.name}" gesendet (${buf.byteLength} Bytes)`);
+
+    // 2. Datei chunkweise senden
+    const arrayBuffer = await file.arrayBuffer();
+    for (let offset = 0; offset < arrayBuffer.byteLength; offset += CHUNK_SIZE) {
+        const chunk = arrayBuffer.slice(offset, offset + CHUNK_SIZE);
+        dcMap[lastPeerId].send(chunk);
+    }
+    log(`Datei "${file.name}" gesendet (${arrayBuffer.byteLength} Bytes, in Chunks)`);
 };
+
+// Hilfsfunktion für Fortschrittsbalken
+function updateProgress(peerId, percent) {
+    let bar = document.getElementById('progress-' + peerId);
+    if (!bar) {
+        bar = document.createElement('progress');
+        bar.id = 'progress-' + peerId;
+        bar.max = 100;
+        bar.value = 0;
+        document.getElementById('peers').appendChild(bar);
+    }
+    bar.value = percent;
+    if (percent >= 100) setTimeout(() => bar.remove(), 2000);
+}
 
 function setupDataChannel(peerId, dc, isLocalSender) {
     dc.binaryType = 'arraybuffer';
@@ -243,6 +263,7 @@ function setupDataChannel(peerId, dc, isLocalSender) {
                 if (obj.meta) {
                     receivedFiles[peerId] = { meta: obj.meta, chunks: [] };
                     log(`Empfange Datei: ${obj.meta.name} (${obj.meta.size} Bytes, ${obj.meta.type})`);
+                    updateProgress(peerId, 0);
                     return;
                 }
             } catch (e) {
@@ -265,7 +286,9 @@ function setupDataChannel(peerId, dc, isLocalSender) {
             receivedFiles[peerId].chunks.push(ev.data);
             const { meta, chunks } = receivedFiles[peerId];
             const receivedSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-            log(`Empfange Daten: ${receivedSize}/${meta.size} Bytes`);
+            const percent = Math.floor((receivedSize / meta.size) * 100);
+            updateProgress(peerId, percent);
+            log(`Empfange Daten: ${receivedSize}/${meta.size} Bytes (${percent}%)`);
             if (receivedSize >= meta.size) {
                 // Datei komplett, als Blob speichern
                 const blob = new Blob(chunks, { type: meta.type || 'application/octet-stream' });
@@ -277,6 +300,7 @@ function setupDataChannel(peerId, dc, isLocalSender) {
                 a.style.display = 'block';
                 document.getElementById('peers').appendChild(a);
                 delete receivedFiles[peerId];
+                updateProgress(peerId, 100);
             }
         } else {
             // Kein Meta, einfach als Binärdaten speichern
