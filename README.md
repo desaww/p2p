@@ -3,38 +3,6 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Tiny P2P File Share - README</title>
-<style>
-  body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background-color: #1e1e1e;
-    color: #f0f0f0;
-    line-height: 1.6;
-    padding: 2rem;
-  }
-  h1, h2 {
-    color: #61dafb;
-  }
-  code {
-    background-color: #2d2d2d;
-    padding: 2px 6px;
-    border-radius: 4px;
-    color: #f8f8f2;
-  }
-  pre {
-    background-color: #2d2d2d;
-    padding: 1rem;
-    border-radius: 6px;
-    overflow-x: auto;
-  }
-  ul {
-    margin-left: 1.5rem;
-  }
-  .note {
-    color: #ffcc00;
-    font-style: italic;
-  }
-</style>
 </head>
 <body>
 
@@ -62,9 +30,6 @@
 
 <h2>Notes</h2>
 <p class="note">This project is intended for <strong>educational use</strong>, to explore WebRTC, WebSockets, and file transfer in the browser. For cross-network use, configure proper STUN/TURN servers. Not intended for production or sensitive data transfer.</p>
-
-<h2>License</h2>
-<p>MIT License</p>
 
 </body>
 </html>
