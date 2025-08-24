@@ -4,10 +4,35 @@
     <meta charset="UTF-8">
     <title>P2P Demo</title>
     <style>
-        body { font-family: Arial, sans-serif; margin: 2em; }
-        #panel { margin-bottom: 1em; }
-        #peers { margin-top: 1em; padding: 0.5em; border: 1px solid #ccc; min-height: 2em; }
-        #log { margin-top: 1em; padding: 0.5em; background: #f9f9f9; border: 1px solid #eee; min-height: 4em; white-space: pre-wrap; }
+        body { font-family: Arial, sans-serif; margin: 2em; background: #f6f8fa; }
+        #panel { margin-bottom: 1em; display: flex; flex-wrap: wrap; gap: 1em; align-items: center; }
+        #roomId, #fileInput { padding: 0.5em; border-radius: 6px; border: 1px solid #ccc; }
+        #joinBtn, #sendBtn { padding: 0.5em 1.2em; border-radius: 6px; border: none; background: #1976d2; color: #fff; font-weight: bold; cursor: pointer; box-shadow: 0 2px 8px #1976d21a; }
+        #joinBtn:disabled, #sendBtn:disabled { background: #aaa; cursor: not-allowed; }
+        #dropZone {
+            margin-top: 8px; padding: 1em; border: 2px dashed #aaa; color: #888; cursor: pointer;
+            border-radius: 10px; background: #f3f6fa; text-align: center; transition: background 0.2s, border-color 0.2s;
+        }
+        #dropZone.dragover {
+            background: #e3f2fd;
+            border-color: #1976d2;
+            color: #1976d2;
+        }
+        #peers, #queue {
+            margin-top: 1em; padding: 1em; border-radius: 10px; background: #fff; box-shadow: 0 2px 8px #0001;
+            min-height: 2em; border: 1px solid #e0e0e0;
+        }
+        #peers-list, #queue-list { list-style: none; padding: 0; margin: 0; }
+        #peers-list li, #queue-list li {
+            margin-bottom: 0.5em; padding: 0.5em 0.8em; border-radius: 6px; background: #f7fafd;
+            display: flex; align-items: center; gap: 0.7em;
+            box-shadow: 0 1px 4px #1976d208;
+        }
+        .progress-wrap { flex: 1; display: flex; align-items: center; gap: 0.5em; }
+        progress { width: 120px; height: 12px; border-radius: 6px; }
+        .file-meta { font-size: 0.95em; color: #333; }
+        .download-link { margin-left: 0.5em; color: #1976d2; text-decoration: underline; }
+        #log { margin-top: 1em; padding: 0.5em; background: #f9f9f9; border: 1px solid #eee; min-height: 4em; white-space: pre-wrap; border-radius: 10px; }
     </style>
 </head>
 <body>
@@ -16,13 +41,18 @@
         <button id="joinBtn">Join</button>
         <input type="file" id="fileInput" multiple>
         <button id="sendBtn" disabled>Senden</button>
-        <div id="dropZone" style="margin-top:8px; padding:1em; border:2px dashed #aaa; color:#888; cursor:pointer;">
-            Dateien hierher ziehen
-        </div>
+        <div id="dropZone">Dateien hierher ziehen</div>
     </div>
-    <div id="peers"></div>
+    <div id="queue">
+        <strong>Upload-Queue:</strong>
+        <ul id="queue-list"></ul>
+    </div>
+    <div id="peers">
+        <strong>Verbundene Peers:</strong>
+        <ul id="peers-list"></ul>
+        <div id="downloads"></div>
+    </div>
     <pre id="log"></pre>
-
     <script src="client.js"></script>
 </body>
 </html>

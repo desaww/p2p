@@ -49,6 +49,7 @@ function send(obj) {
 function updatePeers(list) {
     peers = list;
     log('Peers:', peers);
+    updatePeerList();
 }
 
 // Join-Button-Handler
@@ -224,22 +225,25 @@ let isSending = false; // Flag: läuft gerade ein Upload?
 fileInput.onchange = e => {
     uploadQueue = Array.from(fileInput.files);
     log(`${uploadQueue.length} Datei(en) ausgewählt.`);
+    updateQueueList();
 };
 
 dropZone.ondragover = e => {
     e.preventDefault();
-    dropZone.style.background = "#eef";
+    dropZone.classList.add('dragover');
 };
 dropZone.ondragleave = e => {
     e.preventDefault();
-    dropZone.style.background = "";
+    dropZone.classList.remove('dragover');
 };
 dropZone.ondrop = e => {
     e.preventDefault();
+    dropZone.classList.remove('dragover');
     dropZone.style.background = "";
     const files = Array.from(e.dataTransfer.files);
     uploadQueue = uploadQueue.concat(files);
     log(`${files.length} Datei(en) hinzugefügt. Insgesamt: ${uploadQueue.length}`);
+    updateQueueList();
 };
 
 sendBtn.onclick = async () => {
@@ -261,8 +265,10 @@ async function sendNextFile() {
     if (!uploadQueue.length) {
         isSending = false;
         fileInput.value = "";
+        updateQueueList();
         return;
     }
+    updateQueueList();
     const file = uploadQueue[0];
     const fileId = makeFileId();
     const meta = { id: fileId, name: file.name, size: file.size, type: file.type };
@@ -274,14 +280,16 @@ async function sendNextFile() {
         dcMap[lastPeerId].send(chunk);
         sentBytes += chunk.byteLength;
         const percent = Math.floor((sentBytes / file.size) * 100);
+        // Fortschritt im Queue-UI
+        const bar = document.getElementById('progress-current-upload');
+        if (bar) bar.value = percent;
         updateProgress(fileId, percent);
-        // Optional: kleine Pause, um UI/Netzwerk zu entlasten
-        // await new Promise(res => setTimeout(res, 1));
     }
     log(`Datei "${file.name}" gesendet (${arrayBuffer.byteLength} Bytes, id=${fileId})`);
     updateProgress(fileId, 100);
-    uploadQueue.shift(); // Entferne die gesendete Datei
-    sendNextFile(); // Starte die nächste, falls vorhanden
+    uploadQueue.shift();
+    updateQueueList();
+    sendNextFile();
 }
 
 function setupDataChannel(peerId, dc, isLocalSender) {
@@ -299,15 +307,12 @@ function setupDataChannel(peerId, dc, isLocalSender) {
             try {
                 const obj = JSON.parse(ev.data);
                 if (obj.meta && obj.meta.id) {
-                    // Neue Datei-Übertragung starten
                     transfers[obj.meta.id] = { meta: obj.meta, receivedBytes: 0, chunks: [] };
                     log(`Empfange Datei: ${obj.meta.name} (${obj.meta.size} Bytes, ${obj.meta.type}, id=${obj.meta.id})`);
                     updateProgress(obj.meta.id, 0);
                     return;
                 }
-            } catch (e) {
-                // Kein JSON, ignoriere
-            }
+            } catch (e) {}
             // Fallback: alter Textmodus
             log(`DataChannel message from ${peerId}: [Text]`);
             const blob = new Blob([ev.data], { type: 'text/plain' });
@@ -316,12 +321,11 @@ function setupDataChannel(peerId, dc, isLocalSender) {
             a.href = url;
             a.download = 'received.txt';
             a.textContent = 'Empfangene Datei herunterladen';
-            a.style.display = 'block';
-            document.getElementById('peers').appendChild(a);
+            a.className = 'download-link';
+            document.getElementById('downloads').appendChild(a);
             return;
         }
         // Binärdaten (ArrayBuffer)
-        // Finde die aktuell laufende Übertragung (letzte, die noch nicht fertig ist)
         let currentId = null;
         for (const id in transfers) {
             const t = transfers[id];
@@ -338,20 +342,18 @@ function setupDataChannel(peerId, dc, isLocalSender) {
             updateProgress(currentId, percent);
             log(`Empfange Daten: ${t.receivedBytes}/${t.meta.size} Bytes (${percent}%) für ${t.meta.name}`);
             if (t.receivedBytes >= t.meta.size) {
-                // Datei komplett, als Blob speichern
                 const blob = new Blob(t.chunks, { type: t.meta.type || 'application/octet-stream' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
                 a.download = t.meta.name || 'received.bin';
                 a.textContent = `Empfangene Datei: ${t.meta.name} herunterladen`;
-                a.style.display = 'block';
-                document.getElementById('peers').appendChild(a);
+                a.className = 'download-link';
+                document.getElementById('downloads').appendChild(a);
                 updateProgress(currentId, 100);
                 delete transfers[currentId];
             }
         } else {
-            // Kein aktiver Transfer, einfach speichern
             log(`Empfange unbekannte Binärdaten von ${peerId}`);
             const blob = new Blob([ev.data]);
             const url = URL.createObjectURL(blob);
@@ -359,8 +361,8 @@ function setupDataChannel(peerId, dc, isLocalSender) {
             a.href = url;
             a.download = 'received.bin';
             a.textContent = 'Empfangene Datei herunterladen';
-            a.style.display = 'block';
-            document.getElementById('peers').appendChild(a);
+            a.className = 'download-link';
+            document.getElementById('downloads').appendChild(a);
         }
     };
 
@@ -384,8 +386,35 @@ function updateProgress(fileId, percent) {
         bar.id = 'progress-' + fileId;
         bar.max = 100;
         bar.value = 0;
-        document.getElementById('peers').appendChild(bar);
+        document.getElementById('downloads').appendChild(bar);
     }
     bar.value = percent;
     if (percent >= 100) setTimeout(() => bar.remove(), 2000);
+}
+
+function updatePeerList() {
+    const ul = document.getElementById('peers-list');
+    ul.innerHTML = '';
+    peers.forEach(id => {
+        const li = document.createElement('li');
+        li.textContent = id === myId ? `${id} (du)` : id;
+        ul.appendChild(li);
+    });
+}
+function updateQueueList() {
+    const ul = document.getElementById('queue-list');
+    ul.innerHTML = '';
+    uploadQueue.forEach((file, idx) => {
+        const li = document.createElement('li');
+        li.innerHTML = `<span class="file-meta">${file.name} (${file.size} Bytes)</span>`;
+        // Fortschrittsbalken, falls gerade gesendet
+        if (idx === 0 && isSending) {
+            const progress = document.createElement('progress');
+            progress.id = 'progress-current-upload';
+            progress.max = 100;
+            progress.value = 0;
+            li.appendChild(progress);
+        }
+        ul.appendChild(li);
+    });
 }
