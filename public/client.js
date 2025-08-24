@@ -8,11 +8,20 @@ const joinBtn = document.getElementById('joinBtn');
 const logPre = document.getElementById('log');
 const fileInput = document.getElementById('fileInput');
 const sendBtn = document.getElementById('sendBtn');
+const dropZone = document.getElementById('dropZone');
 
 let ws = null;
 let peers = [];
 let myId = null;
 let lastPeerId = null; // Merkt sich den letzten verbundenen Peer zum Senden
+
+// Mehrere parallele Transfers: fileId -> { meta, receivedBytes, chunks: [] }
+const transfers = {}; // Empfängerseite
+
+// Hilfsfunktion für eindeutige fileId (z.B. Timestamp + Zufall)
+function makeFileId() {
+    return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
 
 const receivedFiles = {}; // peerId -> { meta, chunks: [] }
 
@@ -209,9 +218,32 @@ async function createPeerConnection(peerId, isInitiator) {
 
 const CHUNK_SIZE = 32 * 1024; // 32 KB pro Chunk
 
+let uploadQueue = []; // Array für ausgewählte Dateien
+let isSending = false; // Flag: läuft gerade ein Upload?
+
+fileInput.onchange = e => {
+    uploadQueue = Array.from(fileInput.files);
+    log(`${uploadQueue.length} Datei(en) ausgewählt.`);
+};
+
+dropZone.ondragover = e => {
+    e.preventDefault();
+    dropZone.style.background = "#eef";
+};
+dropZone.ondragleave = e => {
+    e.preventDefault();
+    dropZone.style.background = "";
+};
+dropZone.ondrop = e => {
+    e.preventDefault();
+    dropZone.style.background = "";
+    const files = Array.from(e.dataTransfer.files);
+    uploadQueue = uploadQueue.concat(files);
+    log(`${files.length} Datei(en) hinzugefügt. Insgesamt: ${uploadQueue.length}`);
+};
+
 sendBtn.onclick = async () => {
-    const file = fileInput.files[0];
-    if (!file) {
+    if (!uploadQueue.length) {
         log('Keine Datei gewählt!');
         return;
     }
@@ -219,31 +251,37 @@ sendBtn.onclick = async () => {
         log('Kein offener DataChannel!');
         return;
     }
-    // 1. Metadaten senden
-    const meta = { name: file.name, size: file.size, type: file.type };
-    dcMap[lastPeerId].send(JSON.stringify({ meta }));
+    if (!isSending) {
+        isSending = true;
+        sendNextFile();
+    }
+};
 
-    // 2. Datei chunkweise senden
+async function sendNextFile() {
+    if (!uploadQueue.length) {
+        isSending = false;
+        fileInput.value = "";
+        return;
+    }
+    const file = uploadQueue[0];
+    const fileId = makeFileId();
+    const meta = { id: fileId, name: file.name, size: file.size, type: file.type };
+    dcMap[lastPeerId].send(JSON.stringify({ meta }));
     const arrayBuffer = await file.arrayBuffer();
+    let sentBytes = 0;
     for (let offset = 0; offset < arrayBuffer.byteLength; offset += CHUNK_SIZE) {
         const chunk = arrayBuffer.slice(offset, offset + CHUNK_SIZE);
         dcMap[lastPeerId].send(chunk);
+        sentBytes += chunk.byteLength;
+        const percent = Math.floor((sentBytes / file.size) * 100);
+        updateProgress(fileId, percent);
+        // Optional: kleine Pause, um UI/Netzwerk zu entlasten
+        // await new Promise(res => setTimeout(res, 1));
     }
-    log(`Datei "${file.name}" gesendet (${arrayBuffer.byteLength} Bytes, in Chunks)`);
-};
-
-// Hilfsfunktion für Fortschrittsbalken
-function updateProgress(peerId, percent) {
-    let bar = document.getElementById('progress-' + peerId);
-    if (!bar) {
-        bar = document.createElement('progress');
-        bar.id = 'progress-' + peerId;
-        bar.max = 100;
-        bar.value = 0;
-        document.getElementById('peers').appendChild(bar);
-    }
-    bar.value = percent;
-    if (percent >= 100) setTimeout(() => bar.remove(), 2000);
+    log(`Datei "${file.name}" gesendet (${arrayBuffer.byteLength} Bytes, id=${fileId})`);
+    updateProgress(fileId, 100);
+    uploadQueue.shift(); // Entferne die gesendete Datei
+    sendNextFile(); // Starte die nächste, falls vorhanden
 }
 
 function setupDataChannel(peerId, dc, isLocalSender) {
@@ -260,10 +298,11 @@ function setupDataChannel(peerId, dc, isLocalSender) {
         if (typeof ev.data === 'string') {
             try {
                 const obj = JSON.parse(ev.data);
-                if (obj.meta) {
-                    receivedFiles[peerId] = { meta: obj.meta, chunks: [] };
-                    log(`Empfange Datei: ${obj.meta.name} (${obj.meta.size} Bytes, ${obj.meta.type})`);
-                    updateProgress(peerId, 0);
+                if (obj.meta && obj.meta.id) {
+                    // Neue Datei-Übertragung starten
+                    transfers[obj.meta.id] = { meta: obj.meta, receivedBytes: 0, chunks: [] };
+                    log(`Empfange Datei: ${obj.meta.name} (${obj.meta.size} Bytes, ${obj.meta.type}, id=${obj.meta.id})`);
+                    updateProgress(obj.meta.id, 0);
                     return;
                 }
             } catch (e) {
@@ -282,28 +321,37 @@ function setupDataChannel(peerId, dc, isLocalSender) {
             return;
         }
         // Binärdaten (ArrayBuffer)
-        if (receivedFiles[peerId] && receivedFiles[peerId].meta) {
-            receivedFiles[peerId].chunks.push(ev.data);
-            const { meta, chunks } = receivedFiles[peerId];
-            const receivedSize = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
-            const percent = Math.floor((receivedSize / meta.size) * 100);
-            updateProgress(peerId, percent);
-            log(`Empfange Daten: ${receivedSize}/${meta.size} Bytes (${percent}%)`);
-            if (receivedSize >= meta.size) {
+        // Finde die aktuell laufende Übertragung (letzte, die noch nicht fertig ist)
+        let currentId = null;
+        for (const id in transfers) {
+            const t = transfers[id];
+            if (t.receivedBytes < t.meta.size) {
+                currentId = id;
+                break;
+            }
+        }
+        if (currentId) {
+            const t = transfers[currentId];
+            t.chunks.push(ev.data);
+            t.receivedBytes += ev.data.byteLength;
+            const percent = Math.floor((t.receivedBytes / t.meta.size) * 100);
+            updateProgress(currentId, percent);
+            log(`Empfange Daten: ${t.receivedBytes}/${t.meta.size} Bytes (${percent}%) für ${t.meta.name}`);
+            if (t.receivedBytes >= t.meta.size) {
                 // Datei komplett, als Blob speichern
-                const blob = new Blob(chunks, { type: meta.type || 'application/octet-stream' });
+                const blob = new Blob(t.chunks, { type: t.meta.type || 'application/octet-stream' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = meta.name || 'received.bin';
-                a.textContent = `Empfangene Datei: ${meta.name} herunterladen`;
+                a.download = t.meta.name || 'received.bin';
+                a.textContent = `Empfangene Datei: ${t.meta.name} herunterladen`;
                 a.style.display = 'block';
                 document.getElementById('peers').appendChild(a);
-                delete receivedFiles[peerId];
-                updateProgress(peerId, 100);
+                updateProgress(currentId, 100);
+                delete transfers[currentId];
             }
         } else {
-            // Kein Meta, einfach als Binärdaten speichern
+            // Kein aktiver Transfer, einfach speichern
             log(`Empfange unbekannte Binärdaten von ${peerId}`);
             const blob = new Blob([ev.data]);
             const url = URL.createObjectURL(blob);
@@ -326,4 +374,18 @@ function setupDataChannel(peerId, dc, isLocalSender) {
     };
 
     dcMap[peerId] = dc;
+}
+
+// Fortschrittsbalken für mehrere Dateien (fileId statt peerId)
+function updateProgress(fileId, percent) {
+    let bar = document.getElementById('progress-' + fileId);
+    if (!bar) {
+        bar = document.createElement('progress');
+        bar.id = 'progress-' + fileId;
+        bar.max = 100;
+        bar.value = 0;
+        document.getElementById('peers').appendChild(bar);
+    }
+    bar.value = percent;
+    if (percent >= 100) setTimeout(() => bar.remove(), 2000);
 }

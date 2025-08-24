@@ -14,8 +14,11 @@
     <div id="panel">
         <input type="text" id="roomId" placeholder="Enter Room-ID">
         <button id="joinBtn">Join</button>
-        <input type="file" id="fileInput">
+        <input type="file" id="fileInput" multiple>
         <button id="sendBtn" disabled>Senden</button>
+        <div id="dropZone" style="margin-top:8px; padding:1em; border:2px dashed #aaa; color:#888; cursor:pointer;">
+            Dateien hierher ziehen
+        </div>
     </div>
     <div id="peers"></div>
     <pre id="log"></pre>
